@@ -122,6 +122,11 @@ public:
     virtual size_t getNumberOfClasses() const = 0;
 
     /**
+    *  Get the indices of out-of-bag training samples
+    */
+    virtual void getOutOfBagIndices_ahuber() const = 0;
+
+    /**
     *  Perform Depth First Traversal of i-th tree
     *  \param[in] iTree    Index of the tree to traverse
     *  \param[in] visitor  This object gets notified when tree nodes are visited

@@ -629,6 +629,8 @@ protected:
     algorithmFPType computeOOBErrorPerm(const dtrees::internal::Tree & t, size_t n, const IndexType * aInd, const IndexType * aPerm,
                                         size_t iPermutedFeature);
 
+    TArray<IndexType, cpu> getOutOfBagIndices_ahuber
+
     void setupHostApp()
     {
         const size_t minPart = 4 * _helper.size();        //corresponds to the 4 topmost levels
@@ -1308,6 +1310,17 @@ algorithmFPType TrainBatchTaskBase<algorithmFPType, BinIndexType, DataHelper, cp
         mean += (val - mean) / algorithmFPType(i + 1);
     }
     return mean;
+}
+
+template <typename algorithmFPType, typename BinIndexType, typename DataHelper, CpuType cpu>
+TArray<IndexType, cpu> getOutOfBagIndices_ahuber<algorithmFPType, BinIndexType, DataHelper, cpu>::computeResults()
+{
+    const size_t nOOB = _helper.getNumOOBIndices();
+    if (!nOOB) return TArray<IndexType, cpu>{0};
+    TArray<IndexType, cpu> oobIndices(nOOB);
+    DAAL_CHECK_MALLOC(oobIndices.get());
+    _helper.getOOBIndices(oobIndices.get());
+    return oobIndices;
 }
 
 } /* namespace internal */
