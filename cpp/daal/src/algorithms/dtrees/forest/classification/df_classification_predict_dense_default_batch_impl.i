@@ -57,11 +57,9 @@ namespace internal
 {
 typedef int32_t leftOrClassType; /* tree size and number of classes are fit in to 2^31 */
 typedef int32_t featureIndexType;
-#define _DEFAULT_BLOCK_SIZE                      32
-#define _DEFAULT_BLOCK_SIZE_COMMON               22
-#define _MIN_TREES_FOR_THREADING                 100
-#define _SCALE_FACTOR_FOR_VECT_PARALLEL_COMPUTE  0.3 /* scale tree size to chose whethever vectorized or not compute path in parallel mode */
-#define _MIN_NUMBER_OF_ROWS_FOR_VECT_SEQ_COMPUTE 32  /* min number of rows to be predicted by vectorized compute path in sequential mode */
+#define _DEFAULT_BLOCK_SIZE        32
+#define _DEFAULT_BLOCK_SIZE_COMMON 22
+#define _MIN_TREES_FOR_THREADING   1
 
 template <typename algorithmFPType, CpuType cpu>
 DAAL_FORCEINLINE void fillResults(const size_t nClasses, const enum VotingMethod votingMethod, const size_t blockSize, const double * const probas,
@@ -1089,10 +1087,7 @@ Status PredictClassificationTask<algorithmFPType, cpu>::run(services::HostAppIfa
         _cachedData = const_cast<NumericTable *>(_data);
     }
     const bool hasUnorderedFeatures = _featHelper.hasUnorderedFeatures();
-    if (_data->getNumberOfRows() == 1 && !(hasUnorderedFeatures))
-    {
-        return predictOneRowByAllTrees(nTreesTotal);
-    }
+
     if (_cachedModel != _model)
     {
         _cachedModel = _model;
@@ -1108,31 +1103,7 @@ Status PredictClassificationTask<algorithmFPType, cpu>::run(services::HostAppIfa
         _sumTreeSize     = 0;
     }
 
-    if (hasUnorderedFeatures
-        || (_data->getNumberOfRows() < _averageTreeSize * _SCALE_FACTOR_FOR_VECT_PARALLEL_COMPUTE && daal::threader_get_threads_number() > 1)
-        || (_data->getNumberOfRows() < _MIN_NUMBER_OF_ROWS_FOR_VECT_SEQ_COMPUTE && daal::threader_get_threads_number() == 1))
-    {
-        const auto treeSize = _aTree[0]->getNumberOfRows() * sizeof(dtrees::internal::DecisionTreeNode);
-        DimType dim(*_data, nTreesTotal, treeSize, _nClasses);
-        DAAL_OVERFLOW_CHECK_BY_MULTIPLICATION(size_t, _nClasses, dim.nRowsTotal);
-        DAAL_OVERFLOW_CHECK_BY_MULTIPLICATION(size_t, _nClasses * dim.nRowsTotal, sizeof(ClassIndexType));
-
-        if (dim.nTreeBlocks == 1) //all fit into LL cache
-        {
-            return predictByAllTrees(nTreesTotal, dim);
-        }
-
-        services::internal::TArrayCalloc<algorithmFPType, cpu> aClsCounters(dim.nRowsTotal * _nClasses);
-        if (!aClsCounters.get())
-        {
-            return predictByAllTrees(nTreesTotal, dim);
-        }
-        return predictByBlocksOfTrees(pHostApp, nTreesTotal, dim, aClsCounters.get());
-    }
-    else
-    {
-        return predictAllPointsByAllTrees(nTreesTotal);
-    }
+    return predictAllPointsByAllTrees(nTreesTotal);
 }
 
 template <typename algorithmFPType, CpuType cpu>
