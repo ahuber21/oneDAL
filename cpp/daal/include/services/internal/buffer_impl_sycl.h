@@ -335,29 +335,23 @@ public:
     Status makeCopyToUSM(const SharedPtr<T> & hostData, size_t count)
     {
         Status st;
-        // TODO: use malloc_device and queue.memcpy()
-        auto usmData = ::sycl::malloc_shared<T>(count, _q);
+        auto usmData = ::sycl::malloc_device<T>(count, _q);
         if (usmData == nullptr)
         {
             return services::ErrorMemoryAllocationFailed;
         }
 
-        const size_t size = sizeof(T) * count;
-        DAAL_ASSERT(size / sizeof(T) == count);
+        const std::vector< ::sycl::event> DepEvents;
 
         if (_rwFlag & data_management::readOnly)
         {
-            int result = daal_memcpy_s(usmData, size, hostData.get(), size);
-            if (result)
-            {
-                return services::ErrorMemoryCopyFailedInternal;
-            }
+            _q.copy((const T *)hostData.get(), (T *)usmData, count, DepEvents).wait_and_throw();
         }
 
-        _data = SharedPtr<T>(usmData, [q = this->_q, rwFlag = this->_rwFlag, hostData, size](const void * data) mutable {
+        _data = SharedPtr<T>(usmData, [q = this->_q, rwFlag = this->_rwFlag, hostData, count, DepEvents](const void * data) mutable {
             if (rwFlag & data_management::writeOnly)
             {
-                daal_memcpy_s(hostData.get(), size, data, size);
+                q.copy((const T *)data, (T *)hostData.get(), count, DepEvents).wait_and_throw();
             }
             ::sycl::free(const_cast<void *>(data), q);
         });
