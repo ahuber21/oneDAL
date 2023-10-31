@@ -299,6 +299,107 @@ inline void treeShap(const gbt::internal::GbtDecisionTree * tree, const algorith
         const algorithmFPType wZero     = unwoundPathSumZero(pWeights, uniqueDepth, uniqueDepthPWeights);
         const algorithmFPType scaleZero = -wZero * pWeightsResidual * conditionFraction;
         algorithmFPType scale;
+
+        constexpr int unrollFactor = 4;
+
+        // input - values that are loaded but not changed
+        float zeroFractionVec[unrollFactor]   = { [0 ... unrollFactor - 1] = 0.0f };
+        float nextOnePortionVec[unrollFactor] = { [0 ... unrollFactor - 1] = 0.0f };
+        service_memset<float, cpu>(nextOnePortionVec, pWeights[uniqueDepthPWeights], unrollFactor);
+
+        // intermediate
+        float tmpVec[unrollFactor]   = { [0 ... unrollFactor - 1] = 0.0f };
+        float totalVec[unrollFactor] = { [0 ... unrollFactor - 1] = 0.0f };
+
+        // result
+        float scaleVec[unrollFactor] = { [0 ... unrollFactor - 1] = 0.0f };
+
+        // vector counter
+        int iVec = 0;
+
+        for (uint32_t i = 1; i <= uniqueDepth; ++i)
+        {
+            const PathElement & el = uniquePath[i];
+            if (el.oneFraction != 0)
+            {
+                if (iVec < unrollFactor)
+                {
+                    zeroFractionVec[iVec] = uniquePath[i].zeroFraction;
+                    ++iVec;
+                }
+                else
+                {
+                    float total = 0;
+                    for (int j = uniqueDepthPWeights - 1; j >= 0; --j)
+                    {
+                        const float multiplier = 1.0f / static_cast<float>(j + 1);
+                        for (int k = 0; k < unrollFactor; ++k)
+                        {
+                            tmpVec[k] = nextOnePortionVec[k] * multiplier;
+                            totalVec[k] += tmpVec[k];
+                        }
+                        const float uniqueDepthMultiplier = uniqueDepth - j;
+                        for (int k = 0; k < unrollFactor; ++k)
+                        {
+                            nextOnePortionVec[k] = pWeights[j] - tmpVec[k] * zeroFractionVec[k] * uniqueDepthMultiplier;
+                        }
+                    }
+                    for (int k = 0; k < unrollFactor; ++k)
+                    {
+                        const float w = totalVec[k] * (uniqueDepth + 1);
+                        scaleVec[k]   = w * pWeightsResidual * (1 - zeroFractionVec[k]) * conditionFraction;
+                    }
+                    iVec = 0;
+                }
+            }
+            else
+            {
+                scale = scaleZero;
+            }
+
+            // write to phi output
+            if (valuesNonZeroCount == 1)
+            {
+                const splitValue = splitValues[valuesOffset + valuesNonZeroInd];
+                if (el.oneFraction != 0)
+                {
+                    if (iVec == 0)
+                    {
+                        for (int k = 0; k < unrollFactor; ++k)
+                        {
+                            phi[phiOffset + valuesNonZeroInd] += scaleVec[k] * splitValue;
+                        }
+                    }
+                }
+                else
+                {
+                    phi[phiOffset + valuesNonZeroInd] += scale * splitValue;
+                }
+            }
+            else
+            {
+                for (uint32_t j = 0; j < numOutputs; ++j)
+                {
+                    const float splitValue = splitValues[valuesOffset + j];
+                    if (el.oneFraction != 0)
+                    {
+                        if (iVec == 0)
+                        {
+                            for (int k = 0; k < unrollFactor; ++k)
+                            {
+                                phi[phiOffset + j] += scaleVec[k] * splitValue;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        phi[phiOffset + j] += scale * splitValue;
+                    }
+                }
+            }
+        }
+
+        /**
         for (uint32_t i = 1; i <= uniqueDepth; ++i)
         {
             const PathElement & el   = uniquePath[i];
@@ -306,7 +407,16 @@ inline void treeShap(const gbt::internal::GbtDecisionTree * tree, const algorith
             // update contributions to SHAP values for features satisfying the thresholds and not satisfying the thresholds separately
             if (el.oneFraction != 0)
             {
-                const algorithmFPType w = unwoundPathSum(uniquePath, pWeights, uniqueDepth, uniqueDepthPWeights, i);
+                float total              = 0;
+                const float zeroFraction = uniquePath[i].zeroFraction;
+                float nextOnePortion     = pWeights[uniqueDepthPWeights];
+                for (int j = uniqueDepthPWeights - 1; j >= 0; --j)
+                {
+                    const float tmp = nextOnePortion / static_cast<float>(j + 1);
+                    total += tmp;
+                    nextOnePortion = pWeights[j] - tmp * zeroFraction * (uniqueDepth - j);
+                }
+                const algorithmFPType w = total * (uniqueDepth + 1);
                 scale                   = w * pWeightsResidual * (1 - el.zeroFraction) * conditionFraction;
             }
             else
@@ -325,6 +435,7 @@ inline void treeShap(const gbt::internal::GbtDecisionTree * tree, const algorith
                 }
             }
         }
+        */
 
         return;
     }
