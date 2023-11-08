@@ -527,16 +527,16 @@ inline void treeShap(const gbt::internal::GbtDecisionTree * tree, const algorith
                     //     //        splitValue);
                     //     phi[phiOffsetVec[k] + valuesNonZeroInd] += scaleVec[k] * splitValue;
                     // }
-                    for (int k = 0; k < unrollFactor; ++k)
+                    for (int k = 0; k < iVec; ++k)
                     {
                         phiIndexVec[k] = phiOffsetVec[k] + valuesNonZeroInd;
                     }
-                    for (int k = 0; k < unrollFactor; ++k)
+                    for (int k = 0; k < iVec; ++k)
                     {
                         phiUpdateVec[k] = scaleVec[k] * splitValue;
                     }
                     PRAGMA_IVDEP
-                    for (int k = 0; k < unrollFactor; ++k)
+                    for (int k = 0; k < iVec; ++k)
                     {
                         phi[phiIndexVec[k]] += phiUpdateVec[k];
                     }
@@ -552,16 +552,16 @@ inline void treeShap(const gbt::internal::GbtDecisionTree * tree, const algorith
                         //     // printf("[TAIL]                               phi[%u + %u] += %f * %f\n", phiOffsetVec[k], j, scaleVec[k], splitValue);
                         //     phi[phiOffsetVec[k] + j] += scaleVec[k] * splitValue;
                         // }
-                        for (int k = 0; k < unrollFactor; ++k)
+                        for (int k = 0; k < iVec; ++k)
                         {
                             phiIndexVec[k] = phiOffsetVec[k] + j;
                         }
-                        for (int k = 0; k < unrollFactor; ++k)
+                        for (int k = 0; k < iVec; ++k)
                         {
                             phiUpdateVec[k] = scaleVec[k] * splitValue;
                         }
                         PRAGMA_IVDEP
-                        for (int k = 0; k < unrollFactor; ++k)
+                        for (int k = 0; k < iVec; ++k)
                         {
                             phi[phiIndexVec[k]] += phiUpdateVec[k];
                         }
