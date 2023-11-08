@@ -284,6 +284,10 @@ inline void treeShap(const gbt::internal::GbtDecisionTree * tree, const algorith
 
     if (isLeaf)
     {
+        // pre-calculate wZero for all features not satisfying the thresholds
+        const algorithmFPType wZero     = unwoundPathSumZero(pWeights, uniqueDepth, uniqueDepthPWeights);
+        const algorithmFPType scaleZero = -wZero * pWeightsResidual * conditionFraction;
+
         const size_t valuesOffset   = nodeIndex * numOutputs;
         uint32_t valuesNonZeroInd   = 0;
         uint32_t valuesNonZeroCount = 0;
@@ -295,104 +299,127 @@ inline void treeShap(const gbt::internal::GbtDecisionTree * tree, const algorith
                 valuesNonZeroCount++;
             }
         }
-        // pre-calculate wZero for all features not satisfying the thresholds
-        const algorithmFPType wZero     = unwoundPathSumZero(pWeights, uniqueDepth, uniqueDepthPWeights);
-        const algorithmFPType scaleZero = -wZero * pWeightsResidual * conditionFraction;
 
-        constexpr int unrollFactor = 8;
+        constexpr int unrollFactor = 4;
 
-        // input - values that are loaded but not changed
-        float zeroFractionVec[unrollFactor]   = { [0 ... unrollFactor - 1] = 0.0f };
-        float nextOnePortionVec[unrollFactor] = { [0 ... unrollFactor - 1] = 0.0f };
-        uint32_t phiOffsetVec[unrollFactor]   = { [0 ... unrollFactor - 1] = 0 };
-
-        // intermediate
-        float tmpVec[unrollFactor]   = { [0 ... unrollFactor - 1] = 0.0f };
-        float totalVec[unrollFactor] = { [0 ... unrollFactor - 1] = 0.0f };
-
-        // result
-        float scaleVec[unrollFactor] = { [0 ... unrollFactor - 1] = 0.0f };
-
-        // vector counter
-        int iVec = 0;
-
-        for (uint32_t i = 1; i <= uniqueDepth; ++i)
+        if (uniqueDepth < unrollFactor)
         {
-            const PathElement & el   = uniquePath[i];
-            const uint32_t phiOffset = el.featureIndex * numOutputs;
+            // no benefit from vectorization
 
-            if (el.oneFraction != 0)
+            for (uint32_t i = 1; i <= uniqueDepth; ++i)
             {
-                if (iVec < unrollFactor)
-                {
-                    zeroFractionVec[iVec]   = uniquePath[i].zeroFraction;
-                    nextOnePortionVec[iVec] = pWeights[uniqueDepthPWeights];
-                    phiOffsetVec[iVec]      = phiOffset;
-                    ++iVec;
-                }
-                if (iVec == unrollFactor)
-                {
-                    for (int j = uniqueDepthPWeights - 1; j >= 0; --j)
-                    {
-                        const float multiplier = 1.0f / static_cast<float>(j + 1);
-                        PRAGMA_IVDEP
-                        PRAGMA_VECTOR_ALWAYS
-                        for (int k = 0; k < unrollFactor; ++k)
-                        {
-                            tmpVec[k] = nextOnePortionVec[k] * multiplier;
-                            totalVec[k] += tmpVec[k];
-                        }
-                        const float uniqueDepthMultiplier = uniqueDepth - j;
-                        PRAGMA_IVDEP
-                        PRAGMA_VECTOR_ALWAYS
-                        for (int k = 0; k < unrollFactor; ++k)
-                        {
-                            nextOnePortionVec[k] = pWeights[j] - tmpVec[k] * zeroFractionVec[k] * uniqueDepthMultiplier;
-                        }
-                    }
-                    for (int k = 0; k < unrollFactor; ++k)
-                    {
-                        const float w = totalVec[k] * (uniqueDepth + 1);
-                        scaleVec[k]   = w * pWeightsResidual * (1 - zeroFractionVec[k]) * conditionFraction;
-                    }
-
-                    // reset vector counter and vectors (if necessary)
-                    iVec = 0;
-                    for (int k = 0; k < unrollFactor; ++k)
-                    {
-                        totalVec[k] = 0.0f;
-                    }
-                }
-            }
-
-            // write to phi output
-            if (valuesNonZeroCount == 1)
-            {
-                const float splitValue = splitValues[valuesOffset + valuesNonZeroInd];
+                const PathElement & el   = uniquePath[i];
+                const uint32_t phiOffset = el.featureIndex * numOutputs;
+                // update contributions to SHAP values for features satisfying the thresholds and not satisfying the thresholds separately
+                float scale;
                 if (el.oneFraction != 0)
                 {
-                    if (iVec == 0)
+                    float total              = 0;
+                    const float zeroFraction = uniquePath[i].zeroFraction;
+                    float nextOnePortion     = pWeights[uniqueDepthPWeights];
+                    for (int j = uniqueDepthPWeights - 1; j >= 0; --j)
                     {
-                        PRAGMA_IVDEP
-                        for (int k = 0; k < unrollFactor; ++k)
-                        {
-                            // printf("[NEW] (valuesNonZeroCount)           phi[%u + %u] += %f * %f\n", phiOffsetVec[k], valuesNonZeroInd, scaleVec[k],
-                            //    splitValue);
-                            phi[phiOffsetVec[k] + valuesNonZeroInd] += scaleVec[k] * splitValue;
-                        }
+                        const float tmp = nextOnePortion / static_cast<float>(j + 1);
+                        total += tmp;
+                        nextOnePortion = pWeights[j] - tmp * zeroFraction * (uniqueDepth - j);
                     }
+                    const algorithmFPType w = total * (uniqueDepth + 1);
+                    scale                   = w * pWeightsResidual * (1 - el.zeroFraction) * conditionFraction;
                 }
                 else
                 {
-                    // printf("[NEW] (valuesNonZeroCount) (nonvec)  phi[%u + %u] += %f * %f\n", phiOffset, valuesNonZeroInd, scaleZero, splitValue);
-                    phi[phiOffset + valuesNonZeroInd] += scaleZero * splitValue;
+                    scale = scaleZero;
+                }
+                if (valuesNonZeroCount == 1)
+                {
+                    // printf("[CORRECT] (valuesNonZeroCount)       phi[%u + %u] += %f * %f\n", phiOffset, valuesNonZeroInd, scale,
+                    //        splitValues[valuesOffset + valuesNonZeroInd]);
+                    phi[phiOffset + valuesNonZeroInd] += scale * splitValues[valuesOffset + valuesNonZeroInd];
+                }
+                else
+                {
+                    for (uint32_t j = 0; j < numOutputs; ++j)
+                    {
+                        // printf("[CORRECT]                            phi[%u + %u] += %f * %f\n", phiOffset, j, scale, splitValues[valuesOffset + j]);
+                        phi[phiOffset + j] += scale * splitValues[valuesOffset + j];
+                    }
                 }
             }
-            else
+        }
+        else
+        {
+            // uniqueDepth is large enough for vectorization
+
+            // input - values that are loaded but not changed
+            float zeroFractionVec[unrollFactor]   = { [0 ... unrollFactor - 1] = 0.0f };
+            float nextOnePortionVec[unrollFactor] = { [0 ... unrollFactor - 1] = 0.0f };
+            uint32_t phiOffsetVec[unrollFactor]   = { [0 ... unrollFactor - 1] = 0 };
+
+            // intermediate
+            float tmpVec[unrollFactor]   = { [0 ... unrollFactor - 1] = 0.0f };
+            float totalVec[unrollFactor] = { [0 ... unrollFactor - 1] = 0.0f };
+
+            // result
+            float scaleVec[unrollFactor]       = { [0 ... unrollFactor - 1] = 0.0f };
+            uint32_t phiIndexVec[unrollFactor] = { [0 ... unrollFactor - 1] = 0 };
+            float phiUpdateVec[unrollFactor]   = { [0 ... unrollFactor - 1] = 0.0f };
+
+            // vector counter
+            int iVec = 0;
+
+            for (uint32_t i = 1; i <= uniqueDepth; ++i)
             {
-                for (uint32_t j = 0; j < numOutputs; ++j)
+                const PathElement & el   = uniquePath[i];
+                const uint32_t phiOffset = el.featureIndex * numOutputs;
+
+                if (el.oneFraction != 0)
                 {
-                    const float splitValue = splitValues[valuesOffset + j];
+                    if (iVec < unrollFactor)
+                    {
+                        zeroFractionVec[iVec]   = uniquePath[i].zeroFraction;
+                        nextOnePortionVec[iVec] = pWeights[uniqueDepthPWeights];
+                        phiOffsetVec[iVec]      = phiOffset;
+                        ++iVec;
+                    }
+                    if (iVec == unrollFactor)
+                    {
+                        for (int j = uniqueDepthPWeights - 1; j >= 0; --j)
+                        {
+                            const float multiplier = 1.0f / static_cast<float>(j + 1);
+                            PRAGMA_IVDEP
+                            PRAGMA_VECTOR_ALWAYS
+                            for (int k = 0; k < unrollFactor; ++k)
+                            {
+                                tmpVec[k] = nextOnePortionVec[k] * multiplier;
+                                totalVec[k] += tmpVec[k];
+                            }
+                            const float uniqueDepthMultiplier = uniqueDepth - j;
+                            PRAGMA_IVDEP
+                            PRAGMA_VECTOR_ALWAYS
+                            for (int k = 0; k < unrollFactor; ++k)
+                            {
+                                nextOnePortionVec[k] = pWeights[j] - tmpVec[k] * zeroFractionVec[k] * uniqueDepthMultiplier;
+                            }
+                        }
+                        for (int k = 0; k < unrollFactor; ++k)
+                        {
+                            const float w = totalVec[k] * (uniqueDepth + 1);
+                            scaleVec[k]   = w * pWeightsResidual * (1 - zeroFractionVec[k]) * conditionFraction;
+                        }
+
+                        // reset vector counter and vectors (if necessary)
+                        iVec = 0;
+                        for (int k = 0; k < unrollFactor; ++k)
+                        {
+                            totalVec[k] = 0.0f;
+                        }
+                    }
+                }
+
+                // write to phi output
+                if (valuesNonZeroCount == 1)
+                {
+                    const float splitValue = splitValues[valuesOffset + valuesNonZeroInd];
                     if (el.oneFraction != 0)
                     {
                         if (iVec == 0)
@@ -400,111 +427,122 @@ inline void treeShap(const gbt::internal::GbtDecisionTree * tree, const algorith
                             PRAGMA_IVDEP
                             for (int k = 0; k < unrollFactor; ++k)
                             {
-                                // printf("[NEW]                                phi[%u + %u] += %f * %f\n", phiOffsetVec[k], j, scaleVec[k], splitValue);
-                                phi[phiOffsetVec[k] + j] += scaleVec[k] * splitValue;
+                                // printf("[NEW] (valuesNonZeroCount)           phi[%u + %u] += %f * %f\n", phiOffsetVec[k], valuesNonZeroInd, scaleVec[k],
+                                //    splitValue);
+                                phi[phiOffsetVec[k] + valuesNonZeroInd] += scaleVec[k] * splitValue;
                             }
                         }
                     }
                     else
                     {
-                        // printf("[NEW] (nonvec)                       phi[%u + %u] += %f * %f\n", phiOffset, j, scaleZero, splitValue);
-                        phi[phiOffset + j] += scaleZero * splitValue;
+                        // printf("[NEW] (valuesNonZeroCount) (nonvec)  phi[%u + %u] += %f * %f\n", phiOffset, valuesNonZeroInd, scaleZero, splitValue);
+                        phi[phiOffset + valuesNonZeroInd] += scaleZero * splitValue;
+                    }
+                }
+                else
+                {
+                    for (uint32_t j = 0; j < numOutputs; ++j)
+                    {
+                        const float splitValue = splitValues[valuesOffset + j];
+                        if (el.oneFraction != 0)
+                        {
+                            if (iVec == 0)
+                            {
+                                // PRAGMA_IVDEP
+                                // for (int k = 0; k < unrollFactor; ++k)
+                                // {
+                                //     // printf("[NEW]                                phi[%u + %u] += %f * %f\n", phiOffsetVec[k], j, scaleVec[k], splitValue);
+                                //     phi[phiOffsetVec[k] + j] += scaleVec[k] * splitValue;
+                                // }
+                                for (int k = 0; k < unrollFactor; ++k)
+                                {
+                                    phiIndexVec[k] = phiOffsetVec[k] + j;
+                                }
+                                for (int k = 0; k < unrollFactor; ++k)
+                                {
+                                    phiUpdateVec[k] = scaleVec[k] * splitValue;
+                                }
+                                PRAGMA_IVDEP
+                                for (int k = 0; k < unrollFactor; ++k)
+                                {
+                                    phi[phiIndexVec[k]] += phiUpdateVec[k];
+                                }
+                            }
+                        }
+                        else
+                        {
+                            // printf("[NEW] (nonvec)                       phi[%u + %u] += %f * %f\n", phiOffset, j, scaleZero, splitValue);
+                            phi[phiOffset + j] += scaleZero * splitValue;
+                        }
                     }
                 }
             }
-        }
 
-        if (iVec != 0)
-        {
-            // collect remaining values
-            float total = 0;
-            for (int j = uniqueDepthPWeights - 1; j >= 0; --j)
+            if (iVec != 0)
             {
-                const float multiplier = 1.0f / static_cast<float>(j + 1);
+                // collect remaining values
+                float total = 0;
+                for (int j = uniqueDepthPWeights - 1; j >= 0; --j)
+                {
+                    const float multiplier = 1.0f / static_cast<float>(j + 1);
+                    for (int k = 0; k < iVec; ++k)
+                    {
+                        tmpVec[k] = nextOnePortionVec[k] * multiplier;
+                        totalVec[k] += tmpVec[k];
+                    }
+                    const float uniqueDepthMultiplier = uniqueDepth - j;
+                    for (int k = 0; k < iVec; ++k)
+                    {
+                        nextOnePortionVec[k] = pWeights[j] - tmpVec[k] * zeroFractionVec[k] * uniqueDepthMultiplier;
+                    }
+                }
                 for (int k = 0; k < iVec; ++k)
                 {
-                    tmpVec[k] = nextOnePortionVec[k] * multiplier;
-                    totalVec[k] += tmpVec[k];
+                    const float w = totalVec[k] * (uniqueDepth + 1);
+                    scaleVec[k]   = w * pWeightsResidual * (1 - zeroFractionVec[k]) * conditionFraction;
+                    // printf("[TAIL]                           scale = %f\n", scaleVec[k]);
                 }
-                const float uniqueDepthMultiplier = uniqueDepth - j;
-                for (int k = 0; k < iVec; ++k)
-                {
-                    nextOnePortionVec[k] = pWeights[j] - tmpVec[k] * zeroFractionVec[k] * uniqueDepthMultiplier;
-                }
-            }
-            for (int k = 0; k < iVec; ++k)
-            {
-                const float w = totalVec[k] * (uniqueDepth + 1);
-                scaleVec[k]   = w * pWeightsResidual * (1 - zeroFractionVec[k]) * conditionFraction;
-                // printf("[TAIL]                           scale = %f\n", scaleVec[k]);
-            }
 
-            // write to phi output
-            if (valuesNonZeroCount == 1)
-            {
-                const float splitValue = splitValues[valuesOffset + valuesNonZeroInd];
-                PRAGMA_IVDEP
-                for (int k = 0; k < iVec; ++k)
+                // write to phi output
+                if (valuesNonZeroCount == 1)
                 {
-                    // printf("[TAIL] (valuesNonZeroCount)          phi[%u + %u] += %f * %f\n", phiOffsetVec[k], valuesNonZeroInd, scaleVec[k],
-                    //        splitValue);
-                    phi[phiOffsetVec[k] + valuesNonZeroInd] += scaleVec[k] * splitValue;
-                }
-            }
-            else
-            {
-                for (uint32_t j = 0; j < numOutputs; ++j)
-                {
-                    const float splitValue = splitValues[valuesOffset + j];
+                    const float splitValue = splitValues[valuesOffset + valuesNonZeroInd];
                     PRAGMA_IVDEP
                     for (int k = 0; k < iVec; ++k)
                     {
-                        // printf("[TAIL]                               phi[%u + %u] += %f * %f\n", phiOffsetVec[k], j, scaleVec[k], splitValue);
-                        phi[phiOffsetVec[k] + j] += scaleVec[k] * splitValue;
+                        // printf("[TAIL] (valuesNonZeroCount)          phi[%u + %u] += %f * %f\n", phiOffsetVec[k], valuesNonZeroInd, scaleVec[k],
+                        //        splitValue);
+                        phi[phiOffsetVec[k] + valuesNonZeroInd] += scaleVec[k] * splitValue;
+                    }
+                }
+                else
+                {
+                    for (uint32_t j = 0; j < numOutputs; ++j)
+                    {
+                        const float splitValue = splitValues[valuesOffset + j];
+                        // PRAGMA_IVDEP
+                        // for (int k = 0; k < iVec; ++k)
+                        // {
+                        //     // printf("[TAIL]                               phi[%u + %u] += %f * %f\n", phiOffsetVec[k], j, scaleVec[k], splitValue);
+                        //     phi[phiOffsetVec[k] + j] += scaleVec[k] * splitValue;
+                        // }
+                        for (int k = 0; k < unrollFactor; ++k)
+                        {
+                            phiIndexVec[k] = phiOffsetVec[k] + j;
+                        }
+                        for (int k = 0; k < unrollFactor; ++k)
+                        {
+                            phiUpdateVec[k] = scaleVec[k] * splitValue;
+                        }
+                        PRAGMA_IVDEP
+                        for (int k = 0; k < unrollFactor; ++k)
+                        {
+                            phi[phiIndexVec[k]] += phiUpdateVec[k];
+                        }
                     }
                 }
             }
         }
-
-        // for (uint32_t i = 1; i <= uniqueDepth; ++i)
-        // {
-        //     const PathElement & el   = uniquePath[i];
-        //     const uint32_t phiOffset = el.featureIndex * numOutputs;
-        //     // update contributions to SHAP values for features satisfying the thresholds and not satisfying the thresholds separately
-        //     float scale;
-        //     if (el.oneFraction != 0)
-        //     {
-        //         float total              = 0;
-        //         const float zeroFraction = uniquePath[i].zeroFraction;
-        //         float nextOnePortion     = pWeights[uniqueDepthPWeights];
-        //         for (int j = uniqueDepthPWeights - 1; j >= 0; --j)
-        //         {
-        //             const float tmp = nextOnePortion / static_cast<float>(j + 1);
-        //             total += tmp;
-        //             nextOnePortion = pWeights[j] - tmp * zeroFraction * (uniqueDepth - j);
-        //         }
-        //         const algorithmFPType w = total * (uniqueDepth + 1);
-        //         scale                   = w * pWeightsResidual * (1 - el.zeroFraction) * conditionFraction;
-        //     }
-        //     else
-        //     {
-        //         scale = scaleZero;
-        //     }
-        //     if (valuesNonZeroCount == 1)
-        //     {
-        //         printf("[CORRECT] (valuesNonZeroCount)       phi[%u + %u] += %f * %f\n", phiOffset, valuesNonZeroInd, scale,
-        //                splitValues[valuesOffset + valuesNonZeroInd]);
-        //         // phi[phiOffset + valuesNonZeroInd] += scale * splitValues[valuesOffset + valuesNonZeroInd];
-        //     }
-        //     else
-        //     {
-        //         for (uint32_t j = 0; j < numOutputs; ++j)
-        //         {
-        //             printf("[CORRECT]                            phi[%u + %u] += %f * %f\n", phiOffset, j, scale, splitValues[valuesOffset + j]);
-        //             // phi[phiOffset + j] += scale * splitValues[valuesOffset + j];
-        //         }
-        //     }
-        // }
 
         return;
     }
