@@ -424,12 +424,25 @@ inline void treeShap(const gbt::internal::GbtDecisionTree * tree, const algorith
                     {
                         if (iVec == 0)
                         {
+                            // PRAGMA_IVDEP
+                            // for (int k = 0; k < unrollFactor; ++k)
+                            // {
+                            //     // printf("[NEW] (valuesNonZeroCount)           phi[%u + %u] += %f * %f\n", phiOffsetVec[k], valuesNonZeroInd, scaleVec[k],
+                            //     //    splitValue);
+                            //     phi[phiOffsetVec[k] + valuesNonZeroInd] += scaleVec[k] * splitValue;
+                            // }
+                            for (int k = 0; k < unrollFactor; ++k)
+                            {
+                                phiIndexVec[k] = phiOffsetVec[k] + valuesNonZeroInd;
+                            }
+                            for (int k = 0; k < unrollFactor; ++k)
+                            {
+                                phiUpdateVec[k] = scaleVec[k] * splitValue;
+                            }
                             PRAGMA_IVDEP
                             for (int k = 0; k < unrollFactor; ++k)
                             {
-                                // printf("[NEW] (valuesNonZeroCount)           phi[%u + %u] += %f * %f\n", phiOffsetVec[k], valuesNonZeroInd, scaleVec[k],
-                                //    splitValue);
-                                phi[phiOffsetVec[k] + valuesNonZeroInd] += scaleVec[k] * splitValue;
+                                phi[phiIndexVec[k]] += phiUpdateVec[k];
                             }
                         }
                     }
@@ -507,12 +520,25 @@ inline void treeShap(const gbt::internal::GbtDecisionTree * tree, const algorith
                 if (valuesNonZeroCount == 1)
                 {
                     const float splitValue = splitValues[valuesOffset + valuesNonZeroInd];
-                    PRAGMA_IVDEP
-                    for (int k = 0; k < iVec; ++k)
+                    // PRAGMA_IVDEP
+                    // for (int k = 0; k < iVec; ++k)
+                    // {
+                    //     // printf("[TAIL] (valuesNonZeroCount)          phi[%u + %u] += %f * %f\n", phiOffsetVec[k], valuesNonZeroInd, scaleVec[k],
+                    //     //        splitValue);
+                    //     phi[phiOffsetVec[k] + valuesNonZeroInd] += scaleVec[k] * splitValue;
+                    // }
+                    for (int k = 0; k < unrollFactor; ++k)
                     {
-                        // printf("[TAIL] (valuesNonZeroCount)          phi[%u + %u] += %f * %f\n", phiOffsetVec[k], valuesNonZeroInd, scaleVec[k],
-                        //        splitValue);
-                        phi[phiOffsetVec[k] + valuesNonZeroInd] += scaleVec[k] * splitValue;
+                        phiIndexVec[k] = phiOffsetVec[k] + valuesNonZeroInd;
+                    }
+                    for (int k = 0; k < unrollFactor; ++k)
+                    {
+                        phiUpdateVec[k] = scaleVec[k] * splitValue;
+                    }
+                    PRAGMA_IVDEP
+                    for (int k = 0; k < unrollFactor; ++k)
+                    {
+                        phi[phiIndexVec[k]] += phiUpdateVec[k];
                     }
                 }
                 else
