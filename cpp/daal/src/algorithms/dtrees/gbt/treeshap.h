@@ -335,12 +335,16 @@ inline void treeShap(const gbt::internal::GbtDecisionTree * tree, const algorith
                     for (int j = uniqueDepthPWeights - 1; j >= 0; --j)
                     {
                         const float multiplier = 1.0f / static_cast<float>(j + 1);
+                        PRAGMA_IVDEP
+                        PRAGMA_VECTOR_ALWAYS
                         for (int k = 0; k < unrollFactor; ++k)
                         {
                             tmpVec[k] = nextOnePortionVec[k] * multiplier;
                             totalVec[k] += tmpVec[k];
                         }
                         const float uniqueDepthMultiplier = uniqueDepth - j;
+                        PRAGMA_IVDEP
+                        PRAGMA_VECTOR_ALWAYS
                         for (int k = 0; k < unrollFactor; ++k)
                         {
                             nextOnePortionVec[k] = pWeights[j] - tmpVec[k] * zeroFractionVec[k] * uniqueDepthMultiplier;
@@ -369,6 +373,7 @@ inline void treeShap(const gbt::internal::GbtDecisionTree * tree, const algorith
                 {
                     if (iVec == 0)
                     {
+                        PRAGMA_IVDEP
                         for (int k = 0; k < unrollFactor; ++k)
                         {
                             // printf("[NEW] (valuesNonZeroCount)           phi[%u + %u] += %f * %f\n", phiOffsetVec[k], valuesNonZeroInd, scaleVec[k],
@@ -392,6 +397,7 @@ inline void treeShap(const gbt::internal::GbtDecisionTree * tree, const algorith
                     {
                         if (iVec == 0)
                         {
+                            PRAGMA_IVDEP
                             for (int k = 0; k < unrollFactor; ++k)
                             {
                                 // printf("[NEW]                                phi[%u + %u] += %f * %f\n", phiOffsetVec[k], j, scaleVec[k], splitValue);
@@ -437,6 +443,7 @@ inline void treeShap(const gbt::internal::GbtDecisionTree * tree, const algorith
             if (valuesNonZeroCount == 1)
             {
                 const float splitValue = splitValues[valuesOffset + valuesNonZeroInd];
+                PRAGMA_IVDEP
                 for (int k = 0; k < iVec; ++k)
                 {
                     // printf("[TAIL] (valuesNonZeroCount)          phi[%u + %u] += %f * %f\n", phiOffsetVec[k], valuesNonZeroInd, scaleVec[k],
@@ -449,6 +456,7 @@ inline void treeShap(const gbt::internal::GbtDecisionTree * tree, const algorith
                 for (uint32_t j = 0; j < numOutputs; ++j)
                 {
                     const float splitValue = splitValues[valuesOffset + j];
+                    PRAGMA_IVDEP
                     for (int k = 0; k < iVec; ++k)
                     {
                         // printf("[TAIL]                               phi[%u + %u] += %f * %f\n", phiOffsetVec[k], j, scaleVec[k], splitValue);
