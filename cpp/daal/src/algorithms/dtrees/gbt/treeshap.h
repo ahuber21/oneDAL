@@ -380,10 +380,12 @@ inline void treeShap(const gbt::internal::GbtDecisionTree * tree, const algorith
             {
                 const float splitValue = splitValues[valuesOffset + valuesNonZeroInd];
 
+                PRAGMA_IVDEP
                 for (uint32_t i = 0; i < nonZeroOneFractionCount; ++i)
                 {
                     phi[phiOffsetVec[i] + valuesNonZeroInd] += scaleVec[i] * splitValue;
                 }
+                PRAGMA_IVDEP
                 for (uint32_t i = 0; i < zeroOneFractionCount; ++i)
                 {
                     phi[phiOffsetScaleZeroVec[i] + valuesNonZeroInd] += scaleZero * splitValue;
@@ -391,20 +393,20 @@ inline void treeShap(const gbt::internal::GbtDecisionTree * tree, const algorith
             }
             else
             {
+                PRAGMA_IVDEP
                 for (uint32_t i = 0; i < nonZeroOneFractionCount; ++i)
                 {
                     const uint32_t phiOffset = phiOffsetVec[i];
                     const float scale        = scaleVec[i];
-                    PRAGMA_IVDEP
                     for (uint32_t j = 0; j < numOutputs; ++j)
                     {
                         phi[phiOffset + j] += scale * splitValues[valuesOffset + j];
                     }
                 }
+                PRAGMA_IVDEP
                 for (uint32_t i = 0; i < zeroOneFractionCount; ++i)
                 {
                     const uint32_t phiOffset = phiOffsetScaleZeroVec[i];
-                    PRAGMA_IVDEP
                     for (uint32_t j = 0; j < numOutputs; ++j)
                     {
                         phi[phiOffset + j] += scaleZero * splitValues[valuesOffset + j];
