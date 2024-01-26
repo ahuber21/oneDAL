@@ -19,6 +19,7 @@
 #include "oneapi/dal/detail/common.hpp"
 #include "oneapi/dal/table/common.hpp"
 #include "oneapi/dal/util/result_option_id.hpp"
+#include "oneapi/dal/common.hpp"
 
 namespace oneapi::dal::basic_statistics {
 
@@ -42,12 +43,16 @@ namespace v1 {
 /// Tag-type that denotes dense computational method.
 struct dense {};
 
+/// Tag-type that denotes sparse computational method.
+struct sparse {};
+
 /// Alias tag-type for dense computational method.
 using by_default = dense;
 
 } // namespace v1
 
 using v1::dense;
+using v1::sparse;
 using v1::by_default;
 
 } // namespace method
@@ -115,7 +120,7 @@ template <typename Float>
 constexpr bool is_valid_float_v = dal::detail::is_one_of_v<Float, float, double>;
 
 template <typename Method>
-constexpr bool is_valid_method_v = dal::detail::is_one_of_v<Method, method::dense>;
+constexpr bool is_valid_method_v = dal::detail::is_one_of_v<Method, method::dense, method::sparse>;
 
 template <typename Task>
 constexpr bool is_valid_task_v = dal::detail::is_one_of_v<Task, task::compute>;

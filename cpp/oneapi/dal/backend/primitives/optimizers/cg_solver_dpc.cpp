@@ -24,7 +24,7 @@ namespace oneapi::dal::backend::primitives {
 
 template <typename Float>
 sycl::event cg_solve(sycl::queue& queue,
-                     BaseMatrixOperator<Float>& mul_operator,
+                     base_matrix_operator<Float>& mul_operator,
                      const ndview<Float, 1>& b,
                      ndview<Float, 1>& x,
                      ndview<Float, 1>& residual,
@@ -76,13 +76,14 @@ sycl::event cg_solve(sycl::queue& queue,
     atol = std::max(atol, min_eps);
     Float threshold = std::max(tol * b_norm, atol);
 
-    const auto init_conj_kernel = [=](const Float residual_val, Float*) -> Float {
+    const auto init_conj_kernel = [=](const Float residual_val, Float) -> Float {
         return -residual_val;
     };
+
     auto compute_conj_event = element_wise(queue,
                                            init_conj_kernel,
                                            residual,
-                                           nullptr,
+                                           Float(0),
                                            conj_vector,
                                            { compute_r0_event }); // p0 = -r0 + 0 * p
     auto conj_host = conj_vector.to_host(queue, {});
@@ -91,8 +92,10 @@ sycl::event cg_solve(sycl::queue& queue,
 
     for (std::int64_t iter_num = 0; iter_num < maxiter; ++iter_num) {
         if (sqrt(r_norm) < threshold) {
+            // TODO check that r_norms are the same across diferent devices
             break;
         }
+
         auto compute_matmul_event =
             mul_operator(conj_vector, buffer, { compute_conj_event }); // compute A p_i
         dot_product<Float>(queue, conj_vector, buffer, tmp_ptr, &alpha, { compute_matmul_event })
@@ -142,20 +145,21 @@ sycl::event cg_solve(sycl::queue& queue,
                          conj_vector,
                          { update_x_event, update_residual_event }); // p_i+1 = -r_i+1 + beta * p_i
     }
+
     return compute_conj_event;
 }
 
-#define INSTANTIATE(F)                                       \
-    template sycl::event cg_solve<F>(sycl::queue&,           \
-                                     BaseMatrixOperator<F>&, \
-                                     const ndview<F, 1>&,    \
-                                     ndview<F, 1>&,          \
-                                     ndview<F, 1>&,          \
-                                     ndview<F, 1>&,          \
-                                     ndview<F, 1>&,          \
-                                     F,                      \
-                                     F,                      \
-                                     std::int64_t,           \
+#define INSTANTIATE(F)                                         \
+    template sycl::event cg_solve<F>(sycl::queue&,             \
+                                     base_matrix_operator<F>&, \
+                                     const ndview<F, 1>&,      \
+                                     ndview<F, 1>&,            \
+                                     ndview<F, 1>&,            \
+                                     ndview<F, 1>&,            \
+                                     ndview<F, 1>&,            \
+                                     F,                        \
+                                     F,                        \
+                                     std::int64_t,             \
                                      const event_vector&);
 
 INSTANTIATE(float);

@@ -154,7 +154,7 @@ services::Status updateDenseCrossProductAndSums(bool isNormalized, size_t nFeatu
         algorithmFPType nVectorsInv = 1.0 / (double)(nVectors);
 
         /* Split rows by blocks */
-        std::int64_t numRowsInBlock = getBlockSize<cpu>(nVectors);
+        DAAL_INT64 numRowsInBlock = getBlockSize<cpu>(nVectors);
         if (hyperparameter)
         {
             services::Status status = hyperparameter->find(denseUpdateStepBlockSize, numRowsInBlock);
@@ -403,6 +403,12 @@ services::Status finalizeCovariance(size_t nFeatures, algorithmFPType nObservati
         invNObservationsM1 = 1.0 / (nObservations - 1.0);
     }
 
+    algorithmFPType multiplier = invNObservationsM1;
+    if (parameter->bias)
+    {
+        multiplier = invNObservations;
+    }
+
     /* Calculate resulting mean vector */
     for (size_t i = 0; i < nFeatures; i++)
     {
@@ -437,7 +443,7 @@ services::Status finalizeCovariance(size_t nFeatures, algorithmFPType nObservati
         {
             for (size_t j = 0; j <= i; j++)
             {
-                cov[i * nFeatures + j] = crossProduct[i * nFeatures + j] * invNObservationsM1;
+                cov[i * nFeatures + j] = crossProduct[i * nFeatures + j] * multiplier;
             }
         }
     }
