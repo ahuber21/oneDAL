@@ -61,11 +61,12 @@ function (set_common_compiler_options)
         add_link_options(${DIAG_DISABLE})
     endif()
     if(ONEDAL_USE_DPCPP STREQUAL "yes" AND CMAKE_BUILD_TYPE STREQUAL "Debug")
-        # link huge device code for DPCPP
-        # without this flag build fails with relocation errors
         if(WIN32)
-            add_link_options("/flink-huge-device-code")
+            # do not add system headers in each kernel - reduces lib file size
+            add_link_options("-fno-system-debug")
         else()
+            # link huge device code for DPCPP
+            # without this flag build fails with relocation errors
             add_link_options("-flink-huge-device-code")
         endif()
     endif()
