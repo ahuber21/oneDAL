@@ -34,7 +34,7 @@ COMPILER.win.dpcpp = icx -fsycl $(if $(MSVC_RT_is_release),-MD, -MDd /debug:none
                      -Wno-deprecated-declarations -fsycl-device-code-split=per_kernel
 
 link.dynamic.lnx.dpcpp = icpx -fsycl -m64 -fsycl-device-code-split=per_kernel
-link.dynamic.win.dpcpp = icx -fsycl -m64 -fsycl-device-code-split=per_kernel
+link.dynamic.win.dpcpp = icx -fsycl -m64 -fsycl-device-code-split=per_kernel -fno-system-debug
 
 pedantic.opts.lnx.dpcpp = -pedantic \
                           -Wall \
