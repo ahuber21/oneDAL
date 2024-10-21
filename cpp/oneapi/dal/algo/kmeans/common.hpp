@@ -43,12 +43,17 @@ namespace v1 {
 /// method.
 struct lloyd_dense {};
 
+/// Tag-type that denotes :ref:`Lloyd's <kmeans_t_math_lloyd>` computational
+/// method for sparse data.
+struct lloyd_csr {};
+
 /// Alias tag-type for :ref:`Lloyd's <kmeans_t_math_lloyd>` computational
 /// method.
 using by_default = lloyd_dense;
 } // namespace v1
 
 using v1::lloyd_dense;
+using v1::lloyd_csr;
 using v1::by_default;
 
 } // namespace method
@@ -64,7 +69,6 @@ public:
 
 namespace detail {
 
-ONEDAL_EXPORT result_option_id get_compute_assignments_id();
 ONEDAL_EXPORT result_option_id get_compute_exact_objective_function_id();
 
 } // namespace detail
@@ -73,8 +77,6 @@ ONEDAL_EXPORT result_option_id get_compute_exact_objective_function_id();
 /// what should an algorithm return
 namespace result_options {
 
-/// Return the assignments
-const inline result_option_id compute_assignments = detail::get_compute_assignments_id();
 /// Return the objective function
 const inline result_option_id compute_exact_objective_function =
     detail::get_compute_exact_objective_function_id();
@@ -95,7 +97,8 @@ template <typename Float>
 constexpr bool is_valid_float_v = dal::detail::is_one_of_v<Float, float, double>;
 
 template <typename Method>
-constexpr bool is_valid_method_v = dal::detail::is_one_of_v<Method, method::lloyd_dense>;
+constexpr bool is_valid_method_v =
+    dal::detail::is_one_of_v<Method, method::lloyd_dense, method::lloyd_csr>;
 
 template <typename Task>
 constexpr bool is_valid_task_v = dal::detail::is_one_of_v<Task, task::clustering>;

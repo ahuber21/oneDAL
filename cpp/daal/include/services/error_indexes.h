@@ -143,6 +143,7 @@ enum ErrorID
     ErrorBufferSizeIntegerOverflow                    = -80, /*!< Integer oveflow is occured during buffer size calculation */
     ErrorHyperparameterNotFound                       = -81, /*!< Cannot find a hyperparameter with a given id */
     ErrorHyperparameterCanNotBeSet                    = -82, /*!< Cannot set a hyperparameter with a specified id */
+    ErrorHyperparameterBadValue                       = -83, /*!< Provided a bad value for a hyperparameter */
 
     // Environment errors: -2000..-2999
     ErrorCpuNotSupported          = -2000, /*!< CPU not supported */
@@ -380,7 +381,8 @@ enum ErrorID
     // GBT error: -30000..-30099
     ErrorGbtIncorrectNumberOfTrees             = -30000, /*!< Number of trees in the model is not consistent with the number of classes */
     ErrorGbtPredictIncorrectNumberOfIterations = -30001, /*!< Number of iterations value in GBT parameter is not consistent with the model */
-    ErrorGbtPredictShapOptions                 = -30002, /*< For SHAP values, calculate either contributions or interactions, not both */
+    ErrorGbtPredictShapOptions                 = -30002, /*!< For SHAP values, calculate either contributions or interactions, not both */
+    ErrorGbtPredictShapMulticlassNotSupported  = -30003, /*!< For classification, SHAP values currently only support binary classification */
 
     // Data management errors:  -80001..
     ErrorUserAllocatedMemory = -80001, /*!< Couldn't free memory allocated by user */
