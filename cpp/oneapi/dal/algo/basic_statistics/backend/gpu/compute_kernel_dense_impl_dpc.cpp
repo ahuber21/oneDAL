@@ -295,28 +295,32 @@ struct singlepass_processor_kernel {
         if constexpr (compute_sum2cent)
             sum2cent = zero;
 
-        for (std::int64_t row = 0; row < row_count; ++row) {
-            Float val = data_ptr[row * stride + col];
-            if constexpr (weights)
-                val *= weights_ptr[row];
+        // Repeat the entire computation 1000 times
+        for (int repeat = 0; repeat < 1000; ++repeat) {
+            // Core computation logic
+            for (std::int64_t row = 0; row < row_count; ++row) {
+                Float val = data_ptr[row * stride + col];
+                if constexpr (weights)
+                    val *= weights_ptr[row];
 
-            if constexpr (compute_sum)
-                sum += val;
-            if constexpr (compute_sum2)
-                sum2 += (val * val);
-            if constexpr (compute_min)
-                min = sycl::fmin(min, val);
-            if constexpr (compute_max)
-                max = sycl::fmax(max, val);
+                if constexpr (compute_sum)
+                    sum += val;
+                if constexpr (compute_sum2)
+                    sum2 += (val * val);
+                if constexpr (compute_min)
+                    min = sycl::fmin(min, val);
+                if constexpr (compute_max)
+                    max = sycl::fmax(max, val);
 
-            if constexpr (compute_sum2cent || compute_mean) {
-                const Float delta = val - mean;
-                const Float inv_n = one / (row + one);
+                if constexpr (compute_sum2cent || compute_mean) {
+                    const Float delta = val - mean;
+                    const Float inv_n = one / (row + one);
 
-                if constexpr (compute_mean)
-                    mean += delta * inv_n;
-                if constexpr (compute_sum2cent)
-                    sum2cent += delta * (val - mean);
+                    if constexpr (compute_mean)
+                        mean += delta * inv_n;
+                    if constexpr (compute_sum2cent)
+                        sum2cent += delta * (val - mean);
+                }
             }
         }
 
@@ -434,27 +438,33 @@ struct block_processor_kernel {
         const std::int64_t f_row = row_block_size * row_block;
         const auto l_row = std::min(row_count, f_row + row_block_size);
 
-        for (std::int64_t row = f_row; row < l_row; ++row) {
-            Float val = data_ptr[row * stride + col];
-            if constexpr (weights)
-                val *= weights_ptr[row];
 
-            if constexpr (compute_sum)
-                sum += val;
-            if constexpr (compute_sum2)
-                sum2 += (val * val);
-            if constexpr (compute_min)
-                min = sycl::fmin(min, val);
-            if constexpr (compute_max)
-                max = sycl::fmax(max, val);
 
-            if constexpr (compute_sum2cent) {
-                const Float delta = val - mean;
-                const Float rel_row = row - f_row;
-                const Float inv_n = one / (rel_row + one);
 
-                mean += delta * inv_n;
-                sum2cent += delta * (val - mean);
+        // Repeat the entire computation many times
+        for (int repeat = 0; repeat < 35000; ++repeat) {
+            for (std::int64_t row = f_row; row < l_row; ++row) {
+                Float val = data_ptr[row * stride + col];
+                if constexpr (weights)
+                    val *= weights_ptr[row];
+
+                if constexpr (compute_sum)
+                    sum += val;
+                if constexpr (compute_sum2)
+                    sum2 += (val * val);
+                if constexpr (compute_min)
+                    min = sycl::fmin(min, val);
+                if constexpr (compute_max)
+                    max = sycl::fmax(max, val);
+
+                if constexpr (compute_sum2cent) {
+                    const Float delta = val - mean;
+                    const Float rel_row = row - f_row;
+                    const Float inv_n = one / (rel_row + one);
+
+                    mean += delta * inv_n;
+                    sum2cent += delta * (val - mean);
+                }
             }
         }
 
