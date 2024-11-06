@@ -251,6 +251,7 @@ std::int64_t matching_engine<Cpu>::extract_candidates(bool check_solution) {
     for (std::int64_t i = (size_in_dword << 3); i < vertex_candidates.size(); i++) {
         while (pstart_byte[i] > 0) {
             std::int64_t candidate = bit_vector<Cpu>::power_of_two(pstart_byte[i]);
+            ONEDAL_ASSERT(candidate <= 64);
             pstart_byte[i] ^= (1 << candidate);
             candidate += (i << 3);
             feasible_result_count += check_vertex_candidate(check_solution, candidate);
